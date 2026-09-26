@@ -17,12 +17,29 @@
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
       position: relative;
     }
-    img {
-      max-width: 50vw;
-      max-height: 50vh;
-      height: auto;
-      width: auto;
-      object-fit: contain;
+    /* Square stage: what you see here is what the exported contact photo contains. */
+    .stage {
+      position: relative;
+      width: min(70vmin, 520px);
+      aspect-ratio: 1 / 1;
+      background: inherit;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.15), 0 4px 16px rgba(0,0,0,0.15);
+    }
+    .circle-mask {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      box-shadow: 0 0 0 9999px rgba(0,0,0,0.45), inset 0 0 0 1px rgba(255,255,255,0.8);
+      pointer-events: none;
+    }
+    .stage img {
+      max-width: none;
+      max-height: none;
+      flex: none;
       cursor: pointer;
       transform-origin: center center;
       transition: transform 0.15s ease;
@@ -67,6 +84,18 @@
     .control-panel button:hover {
       background: #0056b3;
     }
+    .preset-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #333;
+      font-size: 0.85rem;
+    }
+    .preset-control select {
+      flex: 1;
+      font-size: 0.9rem;
+      padding: 0.25em;
+    }
     .zoom-control {
       display: flex;
       align-items: center;
@@ -101,11 +130,14 @@
   </style>
 </head>
 <body>
+  <div id="stage" class="stage">
   <div id="placeholder" class="placeholder">
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z"/></svg>
     <span>Use the controls to load an image</span>
   </div>
   <img id="centered-image" alt="Centered" crossorigin="anonymous" style="display:none;" />
+  <div id="circle-mask" class="circle-mask"></div>
+  </div>
   
   <div class="control-panel" id="control-panel" style="display:flex;">
     <button id="toggle-panel">+ Show Controls</button>
@@ -125,11 +157,16 @@
         <span id="zoom-label">100%</span>
         <button id="zoom-reset" style="padding:0.25em 0.5em;font-size:0.8rem;">Reset</button>
       </div>
-      <button id="download-png">Download Page as PNG</button>
+      <button id="toggle-circle">Hide Circle Preview</button>
+      <label class="preset-control" for="preset-select">Export for:
+        <select id="preset-select"></select>
+      </label>
+      <button id="download-png">Download Contact Photo</button>
       <input type="file" id="file-input" accept="image/*" style="display:none;" />
     </div>
   </div>
 
+  <script src="presets.js"></script>
   <script>
     const imageEl = document.getElementById('centered-image');
     const panelButtons = document.getElementById('panel-buttons');
@@ -149,10 +186,53 @@
 
     const placeholder = document.getElementById('placeholder');
 
+    const stageEl = document.getElementById('stage');
+    const circleMask = document.getElementById('circle-mask');
+
+    // Export target (size, format, circle padding) from presets.js.
+    const presetSelect = document.getElementById('preset-select');
+    const downloadBtn = document.getElementById('download-png');
+    for (const p of ContactPresets.PRESETS) {
+      presetSelect.add(new Option(`${p.label} (${p.size} px)`, p.id));
+    }
+    function currentPreset() {
+      return ContactPresets.getPreset(presetSelect.value);
+    }
+    presetSelect.addEventListener('change', () => {
+      downloadBtn.textContent = `Download for ${currentPreset().label}`;
+      layoutImage();
+    });
+    downloadBtn.textContent = `Download for ${currentPreset().label}`;
+
+    // Logo size (before zoom) for a square of `size` px, using the preset's
+    // padding so the preview matches the export. At 100% zoom every corner of
+    // the logo sits inside the circle and survives a circular crop.
+    function fitLogo(size) {
+      const box = ContactPresets.fitLogo(imageEl.naturalWidth, imageEl.naturalHeight,
+        { ...currentPreset(), size });
+      return { w: box.width, h: box.height };
+    }
+
+    function layoutImage() {
+      if (!imageEl.naturalWidth) return;
+      const { w, h } = fitLogo(stageEl.clientWidth);
+      imageEl.style.width = w + 'px';
+      imageEl.style.height = h + 'px';
+    }
+
+    window.addEventListener('resize', layoutImage);
+
     function showImage() {
       placeholder.style.display = 'none';
       imageEl.style.display = '';
+      layoutImage();
     }
+
+    document.getElementById('toggle-circle').addEventListener('click', (e) => {
+      const hidden = circleMask.style.display === 'none';
+      circleMask.style.display = hidden ? '' : 'none';
+      e.target.textContent = hidden ? 'Hide Circle Preview' : 'Show Circle Preview';
+    });
 
     imageEl.addEventListener('load', showImage);
 
@@ -317,54 +397,26 @@
       applyZoom(currentZoom + (e.deltaY < 0 ? 10 : -10));
     }, { passive: false });
 
-    document.getElementById('download-png').addEventListener('click', async () => {
+    downloadBtn.addEventListener('click', async () => {
+      if (!imageEl.naturalWidth) {
+        alert('Load an image first.');
+        return;
+      }
       try {
-        const scale = currentZoom / 100;
-        const dpr = window.devicePixelRatio || 1;
-
-        // Use the viewport dimensions as the output size
-        const pageW = window.innerWidth;
-        const pageH = window.innerHeight;
-
-        const canvas = document.createElement('canvas');
-        canvas.width = pageW * dpr;
-        canvas.height = pageH * dpr;
-        const ctx = canvas.getContext('2d');
-        ctx.scale(dpr, dpr);
-
-        // Fill with the current background colour
-        const bg = getComputedStyle(document.body).backgroundColor;
-        ctx.fillStyle = bg || '#fafafa';
-        ctx.fillRect(0, 0, pageW, pageH);
-
-        // Compute the image's natural dimensions scaled by the zoom
-        const natW = imageEl.naturalWidth;
-        const natH = imageEl.naturalHeight;
-
-        // First figure out the base display size (the CSS-constrained size)
-        const maxW = pageW * 0.5;   // max-width: 50vw
-        const maxH = pageH * 0.5;   // max-height: 50vh
-        const fitScale = Math.min(maxW / natW, maxH / natH, 1);
-        const baseW = natW * fitScale;
-        const baseH = natH * fitScale;
-
-        // Apply zoom
-        const drawW = baseW * scale;
-        const drawH = baseH * scale;
-
-        // Center on the canvas
-        const x = (pageW - drawW) / 2;
-        const y = (pageH - drawH) / 2;
-
-        ctx.drawImage(imageEl, x, y, drawW, drawH);
-
+        // Same fit and zoom as the on-screen square, at the preset's size and format
+        const { blob, name } = await ContactPresets.exportPreset(imageEl, currentPreset(), {
+          background: getComputedStyle(stageEl).backgroundColor || '#fafafa',
+          zoom: currentZoom / 100,
+        });
+        const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
-        link.download = 'page-snapshot.png';
-        link.href = canvas.toDataURL('image/png');
+        link.download = name;
+        link.href = url;
         link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
       } catch (err) {
-        console.error('Failed to generate PNG', err);
-        alert('Could not generate PNG. If the image is from another domain, it must allow cross-origin access.');
+        console.error('Failed to generate contact photo', err);
+        alert('Could not generate the image. If it is from another domain, it must allow cross-origin access.');
       }
     });
   </script>
