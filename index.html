@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Centered Image with Background Picker</title>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #fafafa;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      position: relative;
+    }
+    img {
+      max-width: 50vw;
+      max-height: 50vh;
+      height: auto;
+      width: auto;
+      object-fit: contain;
+      cursor: pointer;
+      transform-origin: center center;
+      transition: transform 0.15s ease;
+    }
+    .placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      color: #888;
+      font-size: 1.2rem;
+      text-align: center;
+      user-select: none;
+    }
+    .placeholder svg {
+      width: 64px;
+      height: 64px;
+      opacity: 0.4;
+    }
+    .control-panel {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 10px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    .control-panel button {
+      padding: 0.5em 1em;
+      border: none;
+      border-radius: 6px;
+      background: #007bff;
+      color: white;
+      font-size: 1rem;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    }
+    .control-panel button:hover {
+      background: #0056b3;
+    }
+    .zoom-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #333;
+      font-size: 0.85rem;
+    }
+    .zoom-control input[type="range"] {
+      flex: 1;
+      cursor: pointer;
+    }
+    .zoom-control span {
+      min-width: 40px;
+      text-align: center;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div id="placeholder" class="placeholder">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z"/></svg>
+    <span>Use the controls to load an image</span>
+  </div>
+  <img id="centered-image" alt="Centered" crossorigin="anonymous" style="display:none;" />
+  
+  <div class="control-panel" id="control-panel" style="display:flex;">
+    <button id="toggle-panel">+ Show Controls</button>
+    <div id="panel-buttons" style="display:none; gap:8px;">
+      <button id="load-pc">Load Image from PC</button>
+      <button id="load-url">Load Image from URL</button>
+      <button id="pick-color">Pick Background Color</button>
+      <div class="zoom-control">
+        <label for="zoom-slider">Zoom:</label>
+        <button id="zoom-out" style="padding:0.25em 0.5em;font-size:0.9rem;">−</button>
+        <input type="range" id="zoom-slider" min="10" max="300" value="100" />
+        <button id="zoom-in" style="padding:0.25em 0.5em;font-size:0.9rem;">+</button>
+        <span id="zoom-label">100%</span>
+        <button id="zoom-reset" style="padding:0.25em 0.5em;font-size:0.8rem;">Reset</button>
+      </div>
+      <button id="download-png">Download Page as PNG</button>
+      <input type="file" id="file-input" accept="image/*" style="display:none;" />
+    </div>
+  </div>
+
+  <script>
+    const imageEl = document.getElementById('centered-image');
+    const panelButtons = document.getElementById('panel-buttons');
+    const toggleBtn = document.getElementById('toggle-panel');
+    const controlPanel = document.getElementById('control-panel');
+
+    toggleBtn.addEventListener('click', () => {
+      if (panelButtons.style.display === 'none') {
+        panelButtons.style.display = 'flex';
+        panelButtons.style.flexDirection = 'column';
+        toggleBtn.textContent = '− Hide Controls';
+      } else {
+        panelButtons.style.display = 'none';
+        toggleBtn.textContent = '+ Show Controls';
+      }
+    });
+
+    const placeholder = document.getElementById('placeholder');
+
+    function showImage() {
+      placeholder.style.display = 'none';
+      imageEl.style.display = '';
+    }
+
+    imageEl.addEventListener('load', showImage);
+
+    const params = new URLSearchParams(window.location.search);
+    const src = params.get('src');
+    if (src) {
+      imageEl.src = src;
+    }
+
+    document.getElementById('load-pc').addEventListener('click', () => {
+      document.getElementById('file-input').click();
+    });
+    document.getElementById('file-input').addEventListener('change', (event) => {
+      const file = event.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          imageEl.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    document.getElementById('load-url').addEventListener('click', async () => {
+      const url = prompt('Enter image URL:');
+      if (!url) return;
+
+      // 1. Try fetching the image as a blob so it becomes a local object URL.
+      //    This avoids CORS/taint issues for both display and PNG export.
+      try {
+        const resp = await fetch(url);
+        if (resp.ok) {
+          const blob = await resp.blob();
+          const blobUrl = URL.createObjectURL(blob);
+          imageEl.removeAttribute('crossorigin');
+          imageEl.src = blobUrl;
+          return;
+        }
+      } catch (_) { /* fetch blocked by CORS — fall through */ }
+
+      // 2. Try loading directly with crossorigin (server may support it for <img>)
+      await new Promise((resolve) => {
+        imageEl.setAttribute('crossorigin', 'anonymous');
+        imageEl.src = url;
+        imageEl.onload = resolve;
+        imageEl.onerror = resolve;  // move to next step
+      }).then(() => {
+        if (imageEl.naturalWidth) return 'ok';
+        return 'fail';
+      }).then(async (status) => {
+        if (status === 'ok') return;
+
+        // 3. Drop crossorigin so image can at least display
+        imageEl.removeAttribute('crossorigin');
+        imageEl.src = '';
+        await new Promise((resolve) => {
+          imageEl.src = url;
+          imageEl.onload = resolve;
+          imageEl.onerror = () => {
+            alert('Could not load the image. Check that the URL is correct and accessible.');
+            resolve();
+          };
+        });
+      });
+    });
+
+    document.getElementById('pick-color').addEventListener('click', async () => {
+      if (!window.EyeDropper) {
+        alert('Your browser does not support the Eyedropper API.');
+        return;
+      }
+      try {
+        const eyeDropper = new EyeDropper();
+        const result = await eyeDropper.open();
+        document.body.style.backgroundColor = result.sRGBHex;
+      } catch (err) {
+        console.error('Eyedropper canceled or failed', err);
+      }
+    });
+
+    // Zoom controls
+    const zoomSlider = document.getElementById('zoom-slider');
+    const zoomLabel = document.getElementById('zoom-label');
+    let currentZoom = 100;
+
+    function applyZoom(value) {
+      currentZoom = Math.max(10, Math.min(300, value));
+      zoomSlider.value = currentZoom;
+      zoomLabel.textContent = currentZoom + '%';
+      imageEl.style.transform = 'scale(' + (currentZoom / 100) + ')';
+    }
+
+    zoomSlider.addEventListener('input', () => applyZoom(parseInt(zoomSlider.value)));
+    document.getElementById('zoom-in').addEventListener('click', () => applyZoom(currentZoom + 10));
+    document.getElementById('zoom-out').addEventListener('click', () => applyZoom(currentZoom - 10));
+    document.getElementById('zoom-reset').addEventListener('click', () => applyZoom(100));
+
+    // Mouse‐wheel zoom on the image
+    imageEl.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      applyZoom(currentZoom + (e.deltaY < 0 ? 10 : -10));
+    }, { passive: false });
+
+    document.getElementById('download-png').addEventListener('click', async () => {
+      try {
+        const scale = currentZoom / 100;
+        const dpr = window.devicePixelRatio || 1;
+
+        // Use the viewport dimensions as the output size
+        const pageW = window.innerWidth;
+        const pageH = window.innerHeight;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = pageW * dpr;
+        canvas.height = pageH * dpr;
+        const ctx = canvas.getContext('2d');
+        ctx.scale(dpr, dpr);
+
+        // Fill with the current background colour
+        const bg = getComputedStyle(document.body).backgroundColor;
+        ctx.fillStyle = bg || '#fafafa';
+        ctx.fillRect(0, 0, pageW, pageH);
+
+        // Compute the image's natural dimensions scaled by the zoom
+        const natW = imageEl.naturalWidth;
+        const natH = imageEl.naturalHeight;
+
+        // First figure out the base display size (the CSS-constrained size)
+        const maxW = pageW * 0.5;   // max-width: 50vw
+        const maxH = pageH * 0.5;   // max-height: 50vh
+        const fitScale = Math.min(maxW / natW, maxH / natH, 1);
+        const baseW = natW * fitScale;
+        const baseH = natH * fitScale;
+
+        // Apply zoom
+        const drawW = baseW * scale;
+        const drawH = baseH * scale;
+
+        // Center on the canvas
+        const x = (pageW - drawW) / 2;
+        const y = (pageH - drawH) / 2;
+
+        ctx.drawImage(imageEl, x, y, drawW, drawH);
+
+        const link = document.createElement('a');
+        link.download = 'page-snapshot.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      } catch (err) {
+        console.error('Failed to generate PNG', err);
+        alert('Could not generate PNG. If the image is from another domain, it must allow cross-origin access.');
+      }
+    });
+  </script>
+</body>
+</html>
