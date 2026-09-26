@@ -12,4 +12,4 @@ Site for creating contact photos from logos
 | Google Contacts | 720 x 720 | PNG |
 | Outlook | 648 x 648 | JPEG |
 
-Use it from the page with `<script src="presets.js"></script>`, then `ContactPresets.exportPreset(img, ContactPresets.getPreset('ios'), { background: '#fff' })`, which resolves to `{ blob, name }`. Run the tests with `node --test`.
+The page's "Export for" menu picks the preset, and the preview uses the same padding as the export. From code, load `<script src="presets.js"></script>` and call `ContactPresets.exportPreset(img, ContactPresets.getPreset('ios'), { background: '#fff' })`, which resolves to `{ blob, name }`. Run the tests with `node --test`.
