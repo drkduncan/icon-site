@@ -1,0 +1,45 @@
+## Version 2026/09/26
+# Serves icon-site at https://icons.example.com
+# Copy to /config/nginx/proxy-confs/icon-site.subdomain.conf, set server_name,
+# and make sure "icons" is covered by your SWAG certificate (SUBDOMAINS=icons
+# or a wildcard). The container must be named icon-site and share SWAG's network.
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+
+    server_name icons.*;
+
+    include /config/nginx/ssl.conf;
+
+    # Room for a 1024 px PNG export.
+    client_max_body_size 8m;
+
+    # The editor and upload API. Enable ONE auth include to keep strangers
+    # from saving photos or using the logo proxy.
+    location / {
+        #include /config/nginx/ldap-location.conf;
+        #include /config/nginx/authelia-location.conf;
+        #include /config/nginx/authentik-location.conf;
+        #auth_basic "Restricted";
+        #auth_basic_user_file /config/nginx/.htpasswd;
+
+        include /config/nginx/proxy.conf;
+        include /config/nginx/resolver.conf;
+        set $upstream_app icon-site;
+        set $upstream_port 8080;
+        set $upstream_proto http;
+        proxy_pass $upstream_proto://$upstream_app:$upstream_port;
+    }
+
+    # Saved photos stay public so Google Contacts (and anyone with the link)
+    # can fetch them without logging in.
+    location /photos/ {
+        include /config/nginx/proxy.conf;
+        include /config/nginx/resolver.conf;
+        set $upstream_app icon-site;
+        set $upstream_port 8080;
+        set $upstream_proto http;
+        proxy_pass $upstream_proto://$upstream_app:$upstream_port;
+    }
+}
