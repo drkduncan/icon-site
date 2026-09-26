@@ -96,6 +96,25 @@
       font-size: 0.9rem;
       padding: 0.25em;
     }
+    .save-control {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 0.85rem;
+      color: #333;
+    }
+    .save-control input[type="text"] {
+      font-size: 0.9rem;
+      padding: 0.3em;
+      min-width: 16em;
+    }
+    .saved-link {
+      display: flex;
+      gap: 6px;
+    }
+    .saved-link input {
+      flex: 1;
+    }
     .zoom-control {
       display: flex;
       align-items: center;
@@ -162,6 +181,14 @@
         <select id="preset-select"></select>
       </label>
       <button id="download-png">Download Contact Photo</button>
+      <div id="save-control" class="save-control" style="display:none;">
+        <input type="text" id="link-name" placeholder="Link name (optional, e.g. acme)" />
+        <button id="save-link">Save and Get Link</button>
+        <div id="saved-link" class="saved-link" style="display:none;">
+          <input type="text" id="saved-url" readonly />
+          <button id="copy-link" style="padding:0.25em 0.5em;font-size:0.9rem;">Copy</button>
+        </div>
+      </div>
       <input type="file" id="file-input" accept="image/*" style="display:none;" />
     </div>
   </div>
@@ -236,10 +263,17 @@
 
     imageEl.addEventListener('load', showImage);
 
+    // When served by the container, remote logos are fetched through its
+    // same-origin proxy so the export canvas is never tainted by CORS.
+    // Opened as a local file there is no server, and the old fallbacks apply.
+    const serverReady = location.protocol.startsWith('http')
+      ? fetch('api/health').then((r) => r.ok).catch(() => false)
+      : Promise.resolve(false);
+
     const params = new URLSearchParams(window.location.search);
     const src = params.get('src');
     if (src) {
-      imageEl.src = src;
+      loadFromUrl(src);
     }
 
     document.getElementById('load-pc').addEventListener('click', () => {
@@ -256,11 +290,24 @@
       }
     });
 
-    document.getElementById('load-url').addEventListener('click', async () => {
-      const url = prompt('Enter image URL:');
-      if (!url) return;
+    async function loadFromUrl(url) {
+      if (/^https?:/i.test(url) && await serverReady) {
+        try {
+          const resp = await fetch('api/logo?url=' + encodeURIComponent(url));
+          if (!resp.ok) {
+            const msg = (await resp.json().catch(() => ({}))).error;
+            alert(msg || 'Could not load the image.');
+            return;
+          }
+          imageEl.removeAttribute('crossorigin');
+          imageEl.src = URL.createObjectURL(await resp.blob());
+        } catch (err) {
+          alert('Could not load the image: ' + err.message);
+        }
+        return;
+      }
 
-      // 1. Try fetching the image as a blob so it becomes a local object URL.
+      // No server: 1. Try fetching the image as a blob so it becomes a local object URL.
       //    This avoids CORS/taint issues for both display and PNG export.
       try {
         const resp = await fetch(url);
@@ -297,6 +344,11 @@
           };
         });
       });
+    }
+
+    document.getElementById('load-url').addEventListener('click', () => {
+      const url = prompt('Enter image URL:');
+      if (url) loadFromUrl(url.trim());
     });
 
     // Background colour: EyeDropper where supported, a standard colour input
@@ -397,17 +449,21 @@
       applyZoom(currentZoom + (e.deltaY < 0 ? 10 : -10));
     }, { passive: false });
 
+    // Same fit and zoom as the on-screen square, at the preset's size and format
+    function renderPhoto() {
+      return ContactPresets.exportPreset(imageEl, currentPreset(), {
+        background: getComputedStyle(stageEl).backgroundColor || '#fafafa',
+        zoom: currentZoom / 100,
+      });
+    }
+
     downloadBtn.addEventListener('click', async () => {
       if (!imageEl.naturalWidth) {
         alert('Load an image first.');
         return;
       }
       try {
-        // Same fit and zoom as the on-screen square, at the preset's size and format
-        const { blob, name } = await ContactPresets.exportPreset(imageEl, currentPreset(), {
-          background: getComputedStyle(stageEl).backgroundColor || '#fafafa',
-          zoom: currentZoom / 100,
-        });
+        const { blob, name } = await renderPhoto();
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.download = name;
@@ -417,6 +473,45 @@
       } catch (err) {
         console.error('Failed to generate contact photo', err);
         alert('Could not generate the image. If it is from another domain, it must allow cross-origin access.');
+      }
+    });
+
+    // Save to the server and get a public URL for the photo (Google Contacts etc.).
+    const saveControl = document.getElementById('save-control');
+    const savedLink = document.getElementById('saved-link');
+    const savedUrl = document.getElementById('saved-url');
+    serverReady.then((ok) => { if (ok) saveControl.style.display = 'flex'; });
+
+    document.getElementById('save-link').addEventListener('click', async () => {
+      if (!imageEl.naturalWidth) {
+        alert('Load an image first.');
+        return;
+      }
+      try {
+        const { blob } = await renderPhoto();
+        const name = document.getElementById('link-name').value.trim().toLowerCase();
+        const resp = await fetch('api/photos' + (name ? '?name=' + encodeURIComponent(name) : ''), {
+          method: 'POST',
+          headers: { 'Content-Type': blob.type },
+          body: blob,
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(result.error || 'Save failed (' + resp.status + ')');
+        savedUrl.value = result.url;
+        savedLink.style.display = 'flex';
+        savedUrl.select();
+      } catch (err) {
+        console.error('Failed to save contact photo', err);
+        alert('Could not save the photo: ' + err.message);
+      }
+    });
+
+    document.getElementById('copy-link').addEventListener('click', async () => {
+      savedUrl.select();
+      try {
+        await navigator.clipboard.writeText(savedUrl.value);
+      } catch (_) {
+        document.execCommand('copy');
       }
     });
   </script>

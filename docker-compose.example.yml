@@ -1,0 +1,28 @@
+# Example: run icon-site next to SWAG.
+# Copy to docker-compose.yml, or paste the service into SWAG's own compose file.
+services:
+  icon-site:
+    build: .
+    # image: ghcr.io/drkduncan/icon-site:latest  # if you publish an image
+    container_name: icon-site   # SWAG's proxy-conf finds the app by this name
+    restart: unless-stopped
+    environment:
+      # Optional: the public base URL used in saved photo links. When unset it
+      # comes from the Host / X-Forwarded-* headers SWAG sends.
+      # - PUBLIC_URL=https://icons.example.com
+      - TZ=Etc/UTC
+    volumes:
+      # Saved photos live in ./data/photos. The container runs as uid 1000,
+      # so a bind-mounted folder must be writable by it (chown 1000:1000 data).
+      - ./data:/data
+    # No ports published: SWAG reaches it over the shared Docker network.
+    # For local testing without SWAG, uncomment:
+    # ports:
+    #   - "8080:8080"
+
+# Join the network SWAG is on. If SWAG lives in another compose project,
+# point this at that project's network (often "swag_default").
+networks:
+  default:
+    name: swag_default
+    external: true

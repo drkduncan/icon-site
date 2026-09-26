@@ -1,0 +1,42 @@
+## Version 2026/09/26
+# Serves icon-site at https://example.com/icons/
+# Copy to /config/nginx/proxy-confs/icon-site.subfolder.conf. The container
+# must be named icon-site and share SWAG's network. The app needs no base-path
+# setting: the prefix is stripped here and passed on as X-Forwarded-Prefix so
+# saved photo links include it.
+
+location = /icons {
+    return 301 $scheme://$host/icons/;
+}
+
+# The editor and upload API. Enable ONE auth include to keep strangers from
+# saving photos or using the logo proxy.
+location ^~ /icons/ {
+    #include /config/nginx/ldap-location.conf;
+    #include /config/nginx/authelia-location.conf;
+    #include /config/nginx/authentik-location.conf;
+    #auth_basic "Restricted";
+    #auth_basic_user_file /config/nginx/.htpasswd;
+
+    client_max_body_size 8m;
+
+    include /config/nginx/proxy.conf;
+    include /config/nginx/resolver.conf;
+    set $upstream_app icon-site;
+    set $upstream_port 8080;
+    set $upstream_proto http;
+    proxy_set_header X-Forwarded-Prefix /icons;
+    rewrite ^/icons(/.*)$ $1 break;
+    proxy_pass $upstream_proto://$upstream_app:$upstream_port;
+}
+
+# Saved photos stay public so Google Contacts can fetch them without logging in.
+location ^~ /icons/photos/ {
+    include /config/nginx/proxy.conf;
+    include /config/nginx/resolver.conf;
+    set $upstream_app icon-site;
+    set $upstream_port 8080;
+    set $upstream_proto http;
+    rewrite ^/icons(/.*)$ $1 break;
+    proxy_pass $upstream_proto://$upstream_app:$upstream_port;
+}
