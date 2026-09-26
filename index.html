@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Centered Image with Background Picker</title>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #fafafa;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      position: relative;
+    }
+    /* Square stage: what you see here is what the exported contact photo contains. */
+    .stage {
+      position: relative;
+      width: min(70vmin, 520px);
+      aspect-ratio: 1 / 1;
+      background: inherit;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.15), 0 4px 16px rgba(0,0,0,0.15);
+    }
+    .circle-mask {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      box-shadow: 0 0 0 9999px rgba(0,0,0,0.45), inset 0 0 0 1px rgba(255,255,255,0.8);
+      pointer-events: none;
+    }
+    .stage img {
+      max-width: none;
+      max-height: none;
+      flex: none;
+      cursor: pointer;
+      transform-origin: center center;
+      transition: transform 0.15s ease;
+    }
+    .placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      color: #888;
+      font-size: 1.2rem;
+      text-align: center;
+      user-select: none;
+    }
+    .placeholder svg {
+      width: 64px;
+      height: 64px;
+      opacity: 0.4;
+    }
+    .control-panel {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 10px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    .control-panel button {
+      padding: 0.5em 1em;
+      border: none;
+      border-radius: 6px;
+      background: #007bff;
+      color: white;
+      font-size: 1rem;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    }
+    .control-panel button:hover {
+      background: #0056b3;
+    }
+    .zoom-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #333;
+      font-size: 0.85rem;
+    }
+    .zoom-control input[type="range"] {
+      flex: 1;
+      cursor: pointer;
+    }
+    .zoom-control span {
+      min-width: 40px;
+      text-align: center;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div id="stage" class="stage">
+  <div id="placeholder" class="placeholder">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z"/></svg>
+    <span>Use the controls to load an image</span>
+  </div>
+  <img id="centered-image" alt="Centered" crossorigin="anonymous" style="display:none;" />
+  <div id="circle-mask" class="circle-mask"></div>
+  </div>
+  
+  <div class="control-panel" id="control-panel" style="display:flex;">
+    <button id="toggle-panel">+ Show Controls</button>
+    <div id="panel-buttons" style="display:none; gap:8px;">
+      <button id="load-pc">Load Image from PC</button>
+      <button id="load-url">Load Image from URL</button>
+      <button id="pick-color">Pick Background Color</button>
+      <div class="zoom-control">
+        <label for="zoom-slider">Zoom:</label>
+        <button id="zoom-out" style="padding:0.25em 0.5em;font-size:0.9rem;">−</button>
+        <input type="range" id="zoom-slider" min="10" max="300" value="100" />
+        <button id="zoom-in" style="padding:0.25em 0.5em;font-size:0.9rem;">+</button>
+        <span id="zoom-label">100%</span>
+        <button id="zoom-reset" style="padding:0.25em 0.5em;font-size:0.8rem;">Reset</button>
+      </div>
+      <button id="toggle-circle">Hide Circle Preview</button>
+      <button id="download-png">Download Contact Photo (1024 px)</button>
+      <input type="file" id="file-input" accept="image/*" style="display:none;" />
+    </div>
+  </div>
+
+  <script>
+    const imageEl = document.getElementById('centered-image');
+    const panelButtons = document.getElementById('panel-buttons');
+    const toggleBtn = document.getElementById('toggle-panel');
+    const controlPanel = document.getElementById('control-panel');
+
+    toggleBtn.addEventListener('click', () => {
+      if (panelButtons.style.display === 'none') {
+        panelButtons.style.display = 'flex';
+        panelButtons.style.flexDirection = 'column';
+        toggleBtn.textContent = '− Hide Controls';
+      } else {
+        panelButtons.style.display = 'none';
+        toggleBtn.textContent = '+ Show Controls';
+      }
+    });
+
+    const placeholder = document.getElementById('placeholder');
+
+    const stageEl = document.getElementById('stage');
+    const circleMask = document.getElementById('circle-mask');
+
+    // Exported contact photo is a square PNG of this many pixels per side.
+    const EXPORT_SIZE = 1024;
+    // At 100% zoom the logo's diagonal spans this fraction of the square, so the
+    // whole logo sits inside the inscribed circle and survives a circular crop.
+    const SAFE_FRACTION = 0.9;
+
+    // Logo size (before zoom) for a square of `size` px, shared by preview and export.
+    function fitLogo(size) {
+      const w = imageEl.naturalWidth;
+      const h = imageEl.naturalHeight;
+      const f = (SAFE_FRACTION * size) / Math.hypot(w, h);
+      return { w: w * f, h: h * f };
+    }
+
+    function layoutImage() {
+      if (!imageEl.naturalWidth) return;
+      const { w, h } = fitLogo(stageEl.clientWidth);
+      imageEl.style.width = w + 'px';
+      imageEl.style.height = h + 'px';
+    }
+
+    window.addEventListener('resize', layoutImage);
+
+    function showImage() {
+      placeholder.style.display = 'none';
+      imageEl.style.display = '';
+      layoutImage();
+    }
+
+    document.getElementById('toggle-circle').addEventListener('click', (e) => {
+      const hidden = circleMask.style.display === 'none';
+      circleMask.style.display = hidden ? '' : 'none';
+      e.target.textContent = hidden ? 'Hide Circle Preview' : 'Show Circle Preview';
+    });
+
+    imageEl.addEventListener('load', showImage);
+
+    const params = new URLSearchParams(window.location.search);
+    const src = params.get('src');
+    if (src) {
+      imageEl.src = src;
+    }
+
+    document.getElementById('load-pc').addEventListener('click', () => {
+      document.getElementById('file-input').click();
+    });
+    document.getElementById('file-input').addEventListener('change', (event) => {
+      const file = event.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          imageEl.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    document.getElementById('load-url').addEventListener('click', async () => {
+      const url = prompt('Enter image URL:');
+      if (!url) return;
+
+      // 1. Try fetching the image as a blob so it becomes a local object URL.
+      //    This avoids CORS/taint issues for both display and PNG export.
+      try {
+        const resp = await fetch(url);
+        if (resp.ok) {
+          const blob = await resp.blob();
+          const blobUrl = URL.createObjectURL(blob);
+          imageEl.removeAttribute('crossorigin');
+          imageEl.src = blobUrl;
+          return;
+        }
+      } catch (_) { /* fetch blocked by CORS — fall through */ }
+
+      // 2. Try loading directly with crossorigin (server may support it for <img>)
+      await new Promise((resolve) => {
+        imageEl.setAttribute('crossorigin', 'anonymous');
+        imageEl.src = url;
+        imageEl.onload = resolve;
+        imageEl.onerror = resolve;  // move to next step
+      }).then(() => {
+        if (imageEl.naturalWidth) return 'ok';
+        return 'fail';
+      }).then(async (status) => {
+        if (status === 'ok') return;
+
+        // 3. Drop crossorigin so image can at least display
+        imageEl.removeAttribute('crossorigin');
+        imageEl.src = '';
+        await new Promise((resolve) => {
+          imageEl.src = url;
+          imageEl.onload = resolve;
+          imageEl.onerror = () => {
+            alert('Could not load the image. Check that the URL is correct and accessible.');
+            resolve();
+          };
+        });
+      });
+    });
+
+    document.getElementById('pick-color').addEventListener('click', async () => {
+      if (!window.EyeDropper) {
+        alert('Your browser does not support the Eyedropper API.');
+        return;
+      }
+      try {
+        const eyeDropper = new EyeDropper();
+        const result = await eyeDropper.open();
+        document.body.style.backgroundColor = result.sRGBHex;
+      } catch (err) {
+        console.error('Eyedropper canceled or failed', err);
+      }
+    });
+
+    // Zoom controls
+    const zoomSlider = document.getElementById('zoom-slider');
+    const zoomLabel = document.getElementById('zoom-label');
+    let currentZoom = 100;
+
+    function applyZoom(value) {
+      currentZoom = Math.max(10, Math.min(300, value));
+      zoomSlider.value = currentZoom;
+      zoomLabel.textContent = currentZoom + '%';
+      imageEl.style.transform = 'scale(' + (currentZoom / 100) + ')';
+    }
+
+    zoomSlider.addEventListener('input', () => applyZoom(parseInt(zoomSlider.value)));
+    document.getElementById('zoom-in').addEventListener('click', () => applyZoom(currentZoom + 10));
+    document.getElementById('zoom-out').addEventListener('click', () => applyZoom(currentZoom - 10));
+    document.getElementById('zoom-reset').addEventListener('click', () => applyZoom(100));
+
+    // Mouse‐wheel zoom on the image
+    imageEl.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      applyZoom(currentZoom + (e.deltaY < 0 ? 10 : -10));
+    }, { passive: false });
+
+    document.getElementById('download-png').addEventListener('click', () => {
+      if (!imageEl.naturalWidth) {
+        alert('Load an image first.');
+        return;
+      }
+      try {
+        const size = EXPORT_SIZE;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingQuality = 'high';
+
+        // Fill with the current background colour
+        const bg = getComputedStyle(stageEl).backgroundColor;
+        ctx.fillStyle = bg || '#fafafa';
+        ctx.fillRect(0, 0, size, size);
+
+        // Same fit and zoom as the on-screen square, scaled up to the export size
+        const { w, h } = fitLogo(size);
+        const drawW = w * currentZoom / 100;
+        const drawH = h * currentZoom / 100;
+        ctx.drawImage(imageEl, (size - drawW) / 2, (size - drawH) / 2, drawW, drawH);
+
+        const link = document.createElement('a');
+        link.download = 'contact-photo.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      } catch (err) {
+        console.error('Failed to generate PNG', err);
+        alert('Could not generate PNG. If the image is from another domain, it must allow cross-origin access.');
+      }
+    });
+  </script>
+</body>
+</html>
