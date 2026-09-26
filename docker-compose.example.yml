@@ -2,8 +2,11 @@
 # Copy to docker-compose.yml, or paste the service into SWAG's own compose file.
 services:
   icon-site:
-    build: .
-    # image: ghcr.io/drkduncan/icon-site:latest  # if you publish an image
+    # Published on every GitHub release. Pin a version (e.g. :1.2.3) instead
+    # of :latest if you want to choose when to upgrade.
+    image: ghcr.io/drkduncan/icon-site:latest
+    # To build from this checkout instead, swap the image line for:
+    # build: .
     container_name: icon-site   # SWAG's proxy-conf finds the app by this name
     restart: unless-stopped
     environment:

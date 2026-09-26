@@ -21,13 +21,15 @@ The page still works opened straight from disk. Run as a container, it also gets
 - fetches remote logos server-side at `api/logo?url=...`, so "Load Image from URL" and `?src=` never hit cross-origin errors and the export always works. The proxy only allows http/https on ports 80 and 443, refuses hosts that resolve to private, loopback, link-local or reserved addresses (checked on every redirect, and the connection is pinned to the checked address), only returns images, and caps them at 5 MB.
 - adds a **Save and Get Link** button that stores the current export in `/data/photos` and shows a public URL such as `https://icons.example.com/photos/acme.png` to use in Google Contacts. Give it a link name and re-saving keeps the same URL; leave it blank and the name comes from the image's hash.
 
-Build and run:
+Run it:
 
 ```sh
 cp docker-compose.example.yml docker-compose.yml   # adjust the network to SWAG's
 mkdir -p data && sudo chown 1000:1000 data
-docker compose up -d --build
+docker compose up -d
 ```
+
+The compose file pulls `ghcr.io/drkduncan/icon-site:latest`, which the `Release image` workflow builds for amd64 and arm64 every time a GitHub release is published. A release tagged `v1.2.3` is also pushed as `1.2.3` and `v1.2.3`, and prereleases never move `latest`. Update with `docker compose pull && docker compose up -d`. To build from a checkout instead, swap `image:` for `build: .` and run `docker compose up -d --build`.
 
 Then copy one of the SWAG samples into `/config/nginx/proxy-confs/` and restart SWAG:
 
