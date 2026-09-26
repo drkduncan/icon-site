@@ -78,6 +78,21 @@
       flex: 1;
       cursor: pointer;
     }
+    .color-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #333;
+      font-size: 0.85rem;
+    }
+    .color-control input[type="color"] {
+      width: 40px;
+      height: 28px;
+      padding: 0;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      cursor: pointer;
+    }
     .zoom-control span {
       min-width: 40px;
       text-align: center;
@@ -98,6 +113,10 @@
       <button id="load-pc">Load Image from PC</button>
       <button id="load-url">Load Image from URL</button>
       <button id="pick-color">Pick Background Color</button>
+      <div class="color-control">
+        <label for="bg-color">Background:</label>
+        <input type="color" id="bg-color" value="#fafafa" />
+      </div>
       <div class="zoom-control">
         <label for="zoom-slider">Zoom:</label>
         <button id="zoom-out" style="padding:0.25em 0.5em;font-size:0.9rem;">−</button>
@@ -200,17 +219,78 @@
       });
     });
 
-    document.getElementById('pick-color').addEventListener('click', async () => {
-      if (!window.EyeDropper) {
-        alert('Your browser does not support the Eyedropper API.');
-        return;
+    // Background colour: EyeDropper where supported, a standard colour input
+    // everywhere (and the only picker where EyeDropper is missing).
+    const bgInput = document.getElementById('bg-color');
+    const pickBtn = document.getElementById('pick-color');
+
+    function setBackground(hex) {
+      document.body.style.backgroundColor = hex;
+      bgInput.value = hex;
+    }
+
+    bgInput.addEventListener('input', () => setBackground(bgInput.value));
+
+    if (!window.EyeDropper) {
+      pickBtn.style.display = 'none';
+    } else {
+      pickBtn.addEventListener('click', async () => {
+        try {
+          const eyeDropper = new EyeDropper();
+          const result = await eyeDropper.open();
+          setBackground(result.sRGBHex);
+        } catch (err) {
+          console.error('Eyedropper canceled or failed', err);
+        }
+      });
+    }
+
+    // Auto-fill the background with the most common opaque colour along the
+    // logo's edges. Skips transparent logos and cross-origin (tainted) images.
+    function edgeColour(img) {
+      const size = 64;
+      const w = Math.max(1, Math.round(size * Math.min(1, img.naturalWidth / img.naturalHeight)));
+      const h = Math.max(1, Math.round(size * Math.min(1, img.naturalHeight / img.naturalWidth)));
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(img, 0, 0, w, h);
+      const data = ctx.getImageData(0, 0, w, h).data;
+
+      const counts = new Map();
+      let total = 0;
+      let opaque = 0;
+      function sample(x, y) {
+        const i = (y * w + x) * 4;
+        total++;
+        if (data[i + 3] < 200) return;
+        opaque++;
+        // Bucket to 4 bits per channel so anti-aliasing noise groups together.
+        const key = (data[i] >> 4) << 8 | (data[i + 1] >> 4) << 4 | (data[i + 2] >> 4);
+        const c = counts.get(key) || { n: 0, r: 0, g: 0, b: 0 };
+        c.n++; c.r += data[i]; c.g += data[i + 1]; c.b += data[i + 2];
+        counts.set(key, c);
       }
+      for (let x = 0; x < w; x++) { sample(x, 0); sample(x, h - 1); }
+      for (let y = 1; y < h - 1; y++) { sample(0, y); sample(w - 1, y); }
+
+      // Mostly transparent edges: the logo has no background of its own.
+      if (opaque < total / 2) return null;
+
+      let best = null;
+      for (const c of counts.values()) if (!best || c.n > best.n) best = c;
+      const hex = (v) => Math.round(v / best.n).toString(16).padStart(2, '0');
+      return '#' + hex(best.r) + hex(best.g) + hex(best.b);
+    }
+
+    imageEl.addEventListener('load', () => {
+      if (!imageEl.naturalWidth) return;
       try {
-        const eyeDropper = new EyeDropper();
-        const result = await eyeDropper.open();
-        document.body.style.backgroundColor = result.sRGBHex;
+        const hex = edgeColour(imageEl);
+        if (hex) setBackground(hex);
       } catch (err) {
-        console.error('Eyedropper canceled or failed', err);
+        console.warn('Could not read logo edge colour', err);
       }
     });
 
