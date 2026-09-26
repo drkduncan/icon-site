@@ -17,12 +17,29 @@
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
       position: relative;
     }
-    img {
-      max-width: 50vw;
-      max-height: 50vh;
-      height: auto;
-      width: auto;
-      object-fit: contain;
+    /* Square stage: what you see here is what the exported contact photo contains. */
+    .stage {
+      position: relative;
+      width: min(70vmin, 520px);
+      aspect-ratio: 1 / 1;
+      background: inherit;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.15), 0 4px 16px rgba(0,0,0,0.15);
+    }
+    .circle-mask {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      box-shadow: 0 0 0 9999px rgba(0,0,0,0.45), inset 0 0 0 1px rgba(255,255,255,0.8);
+      pointer-events: none;
+    }
+    .stage img {
+      max-width: none;
+      max-height: none;
+      flex: none;
       cursor: pointer;
       transform-origin: center center;
       transition: transform 0.15s ease;
@@ -86,11 +103,14 @@
   </style>
 </head>
 <body>
+  <div id="stage" class="stage">
   <div id="placeholder" class="placeholder">
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z"/></svg>
     <span>Use the controls to load an image</span>
   </div>
   <img id="centered-image" alt="Centered" crossorigin="anonymous" style="display:none;" />
+  <div id="circle-mask" class="circle-mask"></div>
+  </div>
   
   <div class="control-panel" id="control-panel" style="display:flex;">
     <button id="toggle-panel">+ Show Controls</button>
@@ -106,7 +126,8 @@
         <span id="zoom-label">100%</span>
         <button id="zoom-reset" style="padding:0.25em 0.5em;font-size:0.8rem;">Reset</button>
       </div>
-      <button id="download-png">Download Page as PNG</button>
+      <button id="toggle-circle">Hide Circle Preview</button>
+      <button id="download-png">Download Contact Photo (1024 px)</button>
       <input type="file" id="file-input" accept="image/*" style="display:none;" />
     </div>
   </div>
@@ -130,10 +151,43 @@
 
     const placeholder = document.getElementById('placeholder');
 
+    const stageEl = document.getElementById('stage');
+    const circleMask = document.getElementById('circle-mask');
+
+    // Exported contact photo is a square PNG of this many pixels per side.
+    const EXPORT_SIZE = 1024;
+    // At 100% zoom the logo's diagonal spans this fraction of the square, so the
+    // whole logo sits inside the inscribed circle and survives a circular crop.
+    const SAFE_FRACTION = 0.9;
+
+    // Logo size (before zoom) for a square of `size` px, shared by preview and export.
+    function fitLogo(size) {
+      const w = imageEl.naturalWidth;
+      const h = imageEl.naturalHeight;
+      const f = (SAFE_FRACTION * size) / Math.hypot(w, h);
+      return { w: w * f, h: h * f };
+    }
+
+    function layoutImage() {
+      if (!imageEl.naturalWidth) return;
+      const { w, h } = fitLogo(stageEl.clientWidth);
+      imageEl.style.width = w + 'px';
+      imageEl.style.height = h + 'px';
+    }
+
+    window.addEventListener('resize', layoutImage);
+
     function showImage() {
       placeholder.style.display = 'none';
       imageEl.style.display = '';
+      layoutImage();
     }
+
+    document.getElementById('toggle-circle').addEventListener('click', (e) => {
+      const hidden = circleMask.style.display === 'none';
+      circleMask.style.display = hidden ? '' : 'none';
+      e.target.textContent = hidden ? 'Hide Circle Preview' : 'Show Circle Preview';
+    });
 
     imageEl.addEventListener('load', showImage);
 
@@ -237,49 +291,32 @@
       applyZoom(currentZoom + (e.deltaY < 0 ? 10 : -10));
     }, { passive: false });
 
-    document.getElementById('download-png').addEventListener('click', async () => {
+    document.getElementById('download-png').addEventListener('click', () => {
+      if (!imageEl.naturalWidth) {
+        alert('Load an image first.');
+        return;
+      }
       try {
-        const scale = currentZoom / 100;
-        const dpr = window.devicePixelRatio || 1;
-
-        // Use the viewport dimensions as the output size
-        const pageW = window.innerWidth;
-        const pageH = window.innerHeight;
-
+        const size = EXPORT_SIZE;
         const canvas = document.createElement('canvas');
-        canvas.width = pageW * dpr;
-        canvas.height = pageH * dpr;
+        canvas.width = size;
+        canvas.height = size;
         const ctx = canvas.getContext('2d');
-        ctx.scale(dpr, dpr);
+        ctx.imageSmoothingQuality = 'high';
 
         // Fill with the current background colour
-        const bg = getComputedStyle(document.body).backgroundColor;
+        const bg = getComputedStyle(stageEl).backgroundColor;
         ctx.fillStyle = bg || '#fafafa';
-        ctx.fillRect(0, 0, pageW, pageH);
+        ctx.fillRect(0, 0, size, size);
 
-        // Compute the image's natural dimensions scaled by the zoom
-        const natW = imageEl.naturalWidth;
-        const natH = imageEl.naturalHeight;
-
-        // First figure out the base display size (the CSS-constrained size)
-        const maxW = pageW * 0.5;   // max-width: 50vw
-        const maxH = pageH * 0.5;   // max-height: 50vh
-        const fitScale = Math.min(maxW / natW, maxH / natH, 1);
-        const baseW = natW * fitScale;
-        const baseH = natH * fitScale;
-
-        // Apply zoom
-        const drawW = baseW * scale;
-        const drawH = baseH * scale;
-
-        // Center on the canvas
-        const x = (pageW - drawW) / 2;
-        const y = (pageH - drawH) / 2;
-
-        ctx.drawImage(imageEl, x, y, drawW, drawH);
+        // Same fit and zoom as the on-screen square, scaled up to the export size
+        const { w, h } = fitLogo(size);
+        const drawW = w * currentZoom / 100;
+        const drawH = h * currentZoom / 100;
+        ctx.drawImage(imageEl, (size - drawW) / 2, (size - drawH) / 2, drawW, drawH);
 
         const link = document.createElement('a');
-        link.download = 'page-snapshot.png';
+        link.download = 'contact-photo.png';
         link.href = canvas.toDataURL('image/png');
         link.click();
       } catch (err) {
